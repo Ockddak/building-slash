@@ -159,6 +159,14 @@ details.info h3{font-family:var(--f-pix);font-weight:400;font-size:12px;margin:4
 const SHARE_URL="https://ockddak.github.io/building-slash/";   // 예: "https://building-slash.netlify.app"
 const CONTACT="";     // 예: "myemail@example.com"
 const VERSION="데모 0.3";
+const GC_CODE="";     // GoatCounter 사이트 코드 (예: "buildingslash"). 비어 있으면 집계하지 않아요.
+
+/* ---------- 방문자 집계 (GoatCounter: 쿠키 없이 방문 수와 버튼 사용 횟수만 셈) ---------- */
+function track(name){try{if(window.goatcounter&&window.goatcounter.count)window.goatcounter.count({path:"event/"+name,title:name,event:true})}catch(e){}}
+if(GC_CODE&&/^https?:$/.test(location.protocol)&&window.top===window){
+  const sc=document.createElement("script");sc.async=true;sc.dataset.goatcounter=`https://${GC_CODE}.goatcounter.com/count`;sc.src="https://gc.zgo.at/count.js";
+  sc.onload=()=>{if(location.hash.includes("vs."))track("challenge-opened")};document.head.appendChild(sc);
+}
 
 /* =========================================================
    게임 데이터
@@ -323,6 +331,7 @@ function step(dt){
   S.shake=Math.max(0,S.shake-dt);
 }
 function die(){
+  track(S.ch?(S.score>S.ch.score?"challenge-win":"challenge-lose"):"game-over");
   S.mode="over";S.p.dead=true;S.shake=0.3;sfx("die");buzz([60,40,140]);$("ctl").hidden=true;
   const isBest=S.score>best;if(isBest){best=S.score;lsSet("bs_best",String(best))}
   setTimeout(()=>showOver(isBest),800);
@@ -544,7 +553,7 @@ function pop(t){const el=$("pop");el.textContent=t;el.classList.remove("show");v
 let last=performance.now();
 function loop(t){const dt=Math.min(.033,(t-last)/1000);last=t;if(S&&!S.paused)step(dt);SKIN.draw(S);requestAnimationFrame(loop)}
 
-function start(seed,ch){au();reset(seed,ch);$("ov").hidden=true;$("hud").hidden=false;$("setup").hidden=true;$("sharePanel").hidden=true;$("ctl").hidden=false;muteLabel();hud();last=performance.now()}
+function start(seed,ch){au();reset(seed,ch);track(ch?"challenge-start":"game-start");$("ov").hidden=true;$("hud").hidden=false;$("setup").hidden=true;$("sharePanel").hidden=true;$("ctl").hidden=false;muteLabel();hud();last=performance.now()}
 function showStart(){
   reset();S.mode="title";S.b=newBuilding(1);S.b.by=GY*.5;S.b.g=0;
   const ov=$("ov");ov.hidden=false;$("hud").hidden=true;$("ctl").hidden=true;$("sharePanel").hidden=true;
@@ -619,12 +628,14 @@ function challengeText(){
   return{code,link,text:`[빌딩 베기 도전장] ${who}가 ${S.score.toLocaleString()}점! 똑같은 건물로 이길 수 있어?${link?" "+link:` 도전 코드: ${code}`}`};
 }
 async function sendChallenge(){
+  track("challenge-sent");
   const {code,link,text}=challengeText(),m=$("vmsg");
   $("vsCode").textContent=link?link:`도전 코드: ${code}`;
   try{if(navigator.share&&link){await navigator.share({text});m.textContent="도전장을 보냈어요!";return}}catch(e){if(e&&e.name==="AbortError")return}
   navigator.clipboard.writeText(text).then(()=>m.textContent=link?"도전장을 복사했어요. 친구에게 붙여넣어 보내세요.":"복사했어요. 친구가 시작 화면의 '도전 코드가 있어요'에 코드를 넣으면 돼요.").catch(()=>m.textContent="위 코드를 길게 눌러 복사해 보내세요.");
 }
 async function shareImage(){
+  track("share-image");
   const m=$("smsg"),blob=await new Promise(r=>cardCanvas.toBlob(r,"image/png"));if(!blob){m.textContent="이미지를 길게 눌러 저장하세요.";return}
   const file=new File([blob],"building-slash.png",{type:"image/png"});
   try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],text:shareText()});m.textContent="공유했어요!";return}}catch(e){if(e&&e.name==="AbortError")return}
@@ -701,7 +712,7 @@ function openCrop(img){
     const s=CROP.base*CROP.z,k=128/400;
     o.beginPath();o.arc(64,64,64,0,Math.PI*2);o.clip();
     o.drawImage(CROP.img,(CROP.ox-20)*k,(CROP.oy-20)*k,CROP.img.width*s*k,CROP.img.height*s*k);
-    setFace(out.toDataURL("image/png"));CROP=null;renderSetup();
+    setFace(out.toDataURL("image/png"));CROP=null;renderSetup();track("face-set");
   };
 }
 function drawCrop(){
