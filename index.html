@@ -53,6 +53,7 @@ button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;paddin
 canvas#cv{display:block;image-rendering:pixelated;image-rendering:crisp-edges}
 .hud{position:absolute;top:8px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
 .hud .sc{font-family:var(--f-pix);font-size:24px;line-height:1;color:var(--white);text-shadow:2px 0 0 var(--ink),-2px 0 0 var(--ink),0 2px 0 var(--ink),0 -2px 0 var(--ink),2px 2px 0 var(--ink)}
+.hud .lives{font-family:var(--f-pix);font-size:24px;line-height:1.2;color:var(--red);text-shadow:2px 2px 0 var(--ink)}
 .hud .r{text-align:right;font-family:var(--f-pix);font-size:12px;line-height:1.4;color:var(--lgray);text-shadow:1px 1px 0 var(--ink)}
 .pop{position:absolute;left:0;right:0;top:30%;text-align:center;font-family:var(--f-pix);font-size:24px;color:var(--yellow);pointer-events:none;opacity:0;
   text-shadow:2px 0 0 var(--ink),-2px 0 0 var(--ink),0 2px 0 var(--ink),0 -2px 0 var(--ink),3px 3px 0 var(--red)}
@@ -138,7 +139,7 @@ details.info h3{font-family:var(--f-pix);font-weight:400;font-size:12px;margin:4
 <div class="app">
   <div class="stage" id="stage">
     <canvas id="cv"></canvas>
-    <div class="hud" id="hud" hidden><span class="sc" id="sc">0</span><span class="r"><span id="lvl">1번째 건물</span><br><span id="best"></span></span></div>
+    <div class="hud" id="hud" hidden><span><span class="sc" id="sc">0</span><br><span class="lives" id="lives"></span></span><span class="r"><span id="lvl">1번째 건물</span><br><span id="best"></span></span></div>
     <div class="pop" id="pop"></div>
     <div class="ctl" id="ctl" hidden><button id="bPause">일시정지</button><button id="bMute"></button></div>
     <div class="ov" id="ov"></div>
@@ -158,7 +159,7 @@ details.info h3{font-family:var(--f-pix);font-weight:400;font-size:12px;margin:4
    ========================================================= */
 const SHARE_URL="https://ockddak.github.io/building-slash/";   // 예: "https://building-slash.netlify.app"
 const CONTACT="";     // 예: "myemail@example.com"
-const VERSION="데모 0.3";
+const VERSION="데모 0.4";
 const GC_CODE="";     // GoatCounter 사이트 코드 (예: "buildingslash"). 비어 있으면 집계하지 않아요.
 
 /* ---------- 방문자 집계 (GoatCounter: 쿠키 없이 방문 수와 버튼 사용 횟수만 셈) ---------- */
@@ -186,6 +187,7 @@ const STRESS={
 };
 const GEN=[["all","전부 섞기"],["teen","10대"],["twenty","20대"],["adult","30·40대"]];
 const MAXW=7;
+const LIVES=3, LATE_G=35;  // 목숨 수, 8번째 건물 이후 건물마다 더해지는 낙하 가속 (봇 측정으로 정한 값)
 const $=id=>document.getElementById(id);
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const pickA=a=>a[Math.floor(Math.random()*a.length)];
@@ -239,6 +241,7 @@ function sfx(k){if(muted)return;try{
   if(k==="guard")tone(440,.12,"square",.05,330);
   if(k==="clear")[523,659,784,1046].forEach((f,i)=>tone(f,.12,"square",.04,0,i*.08));
   if(k==="die"){noise(.45,.3);tone(220,.55,"square",.07,-180)}
+  if(k==="hurt"){noise(.22,.28);tone(200,.25,"square",.06,-110)}
 }catch(e){}}
 function buzz(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
 
@@ -258,12 +261,12 @@ function newBuilding(level){
   const n=Math.min(12,3+Math.floor(level*0.8));
   const tIdx=Math.min(TYPES.length-1,Math.floor((level-1)/2));
   const floors=Array.from({length:n},()=>{const t=TYPES[Math.max(0,tIdx-(GR()<.35?1:0))];return{t,hp:t.hp,max:t.hp,shake:0,seed:Math.random(),...pickStress()}});
-  return{floors,by:GY+60,vb:0,g:230+level*38,x:BX};
+  return{floors,by:GY+60,vb:0,g:230+level*38+(level>8?LATE_G*(level-8):0),x:BX};
 }
 function reset(seed,ch){
   const sd=seed||(Math.floor(Math.random()*2147483646)+1);GR=mulberry(sd);
-  S={seed:sd,ch:ch||null,gen:ch?ch.gen:gen,passed:false,mode:"play",paused:false,tut:ch?false:!lsGet("bs_tut"),level:1,score:0,floorsBroken:0,combo:0,maxCombo:0,tally:{},
-    p:{py:0,vp:0,mom:0,pierce:0,slashT:0,guardT:0,guardCd:0,landT:0,flip:false,dead:false},maxPierce:0,pending:null,
+  S={seed:sd,ch:ch||null,gen:ch?ch.gen:gen,passed:false,lives:LIVES,mode:"play",paused:false,tut:ch?false:!lsGet("bs_tut"),level:1,score:0,floorsBroken:0,combo:0,maxCombo:0,tally:{},
+    p:{py:0,vp:0,mom:0,pierce:0,slashT:0,guardT:0,guardCd:0,landT:0,inv:0,flip:false,dead:false},maxPierce:0,pending:null,
     b:null,debris:[],sparks:[],pops:[],shake:0,nextIn:0.6,t:0};
 }
 function slash(){
@@ -305,7 +308,7 @@ function tryHit(){
 function sparks(x,y,n){for(let k=0;k<n;k++)S.sparks.push({x:x+rnd(-40,40),y,vx:rnd(-220,220),vy:rnd(-240,20),t:0.35})}
 function step(dt){
   const p=S.p;S.t+=dt;
-  p.slashT=Math.max(0,p.slashT-dt);p.guardT=Math.max(0,p.guardT-dt);p.guardCd=Math.max(0,p.guardCd-dt);p.landT=Math.max(0,p.landT-dt);
+  p.slashT=Math.max(0,p.slashT-dt);p.guardT=Math.max(0,p.guardT-dt);p.guardCd=Math.max(0,p.guardCd-dt);p.landT=Math.max(0,p.landT-dt);p.inv=Math.max(0,p.inv-dt);
   if(S.mode==="play"){
     if(!S.b){S.nextIn-=dt;if(S.nextIn<=0){S.b=S.pending||newBuilding(S.level);S.pending=null}}
     p.vp-=1900*dt;p.py+=p.vp*dt;
@@ -320,7 +323,8 @@ function step(dt){
         else if(p.py>0){p.py=Math.max(0,b.by-PH);if(p.vp>b.vb){p.mom=Math.max(p.mom,p.vp);p.vp=b.vb}}
         if(p.py<=0.5&&b.by<=PH){
           if(p.guardT>0){b.by=PH;b.vb=200+S.level*6;S.score+=5;S.combo=0;sparks(W/2,GY-PH,10);S.shake=0.1;hud();sfx("guard");buzz(20)}
-          else{b.by=PH;die()}
+          else if(p.inv>0){b.by=PH;b.vb=380}
+          else{b.by=PH;hurt()}
         }
       }
     }
@@ -329,6 +333,12 @@ function step(dt){
   S.sparks.forEach(s=>{s.t-=dt;s.x+=s.vx*dt;s.y+=s.vy*dt;s.vy+=900*dt});S.sparks=S.sparks.filter(s=>s.t>0);
   S.pops.forEach(o=>o.t+=dt);S.pops=S.pops.filter(o=>o.t<0.6);
   S.shake=Math.max(0,S.shake-dt);
+}
+function hurt(){
+  S.lives--;
+  if(S.lives<=0){die();return}
+  const b=S.b;b.by=PH+5;b.vb=380;S.combo=0;S.p.inv=1.2;S.shake=0.25;
+  sfx("hurt");buzz(80);pop(`목숨 ${S.lives}개 남음`);hud();
 }
 function die(){
   track(S.ch?(S.score>S.ch.score?"challenge-win":"challenge-lose"):"game-over");
@@ -478,7 +488,7 @@ const PixelSkin=(()=>{
         drawText(g,pb.boss?`'${pb.floors[0].w}' 5번씩 베기`:`'${pb.floors[0].w.slice(0,MAXW)}' 외 ${pb.floors.length-1}층`,LW/2,by+17,C.white);
         drawText(g,`${Math.ceil(S.nextIn)}초 뒤 낙하`,LW/2,by+31,C.lgray);
       }
-      player(g,S.p,LW/2,Math.round((GY-S.p.py)/PX));
+      if(!(S.p.inv>0&&Math.floor(S.t*12)%2))player(g,S.p,LW/2,Math.round((GY-S.p.py)/PX));
       S.debris.forEach(d=>R(g,d.x/PX,d.y/PX,d.s,d.s,DCOL[d.k]||C.lgray));
       S.sparks.forEach(s=>R(g,s.x/PX,s.y/PX,1,1,s.t>.18?C.white:C.yellow));
       S.pops.forEach(o=>{if(o.t<.5||Math.floor(o.t*20)%2)drawText(g,o.txt,o.x/PX,o.y/PX-6-o.t*24,C.yellow,C.ink)});
@@ -544,6 +554,7 @@ function layout(){SKIN.layout(stage)}
 addEventListener("resize",layout);
 function hud(){
   $("sc").textContent=S.score.toLocaleString();$("lvl").textContent=`${S.level}번째 건물`;
+  $("lives").textContent="♥".repeat(Math.max(0,S.lives))+"♡".repeat(Math.max(0,LIVES-S.lives));
   if(S.ch){
     if(!S.passed&&S.mode==="play"&&S.score>S.ch.score){S.passed=true;pop("역전!");sfx("clear");buzz([30,30,30])}
     $("best").textContent=S.passed?`${S.ch.name||"친구"} 추월!`:`${S.ch.name||"친구"} ${S.ch.score.toLocaleString()}까지 ${(S.ch.score-S.score+1).toLocaleString()}`;
@@ -561,7 +572,7 @@ function showStart(){
   ov.innerHTML=`<span class="tag">하늘에서 스트레스가 떨어진다</span><h1>빌딩<br><span>베기</span></h1>
     <div class="keys"><b class="s">베기</b><span>점프해서 맨 아래층을 베요. 층이 부서지면 남은 힘으로 위층까지 관통해요.</span>
     <b class="g">막기</b><span>건물이 닿기 직전에 누르면 튕겨 내요. 땅에서도, 공중에서도 돼요.</span></div>
-    <p class="note">건물에 깔리면 끝. 5번째 건물마다 보스가 떨어져요.</p>
+    <p class="note">목숨은 3개. 깔릴 때마다 하나씩 줄어요. 5번째 건물마다 보스가 떨어져요.</p>
     ${CH?`<div class="vsbox"><span class="pix" style="color:var(--yellow)">도전장 도착!</span>
       <p><b class="pix">${esc(CH.name||"친구")}</b>님이 <b class="pix">${CH.score.toLocaleString()}점</b>을 냈어요. 같은 건물로 이겨 보세요.</p></div>
       <button class="btn big2" id="go">도전 시작</button><button class="link" id="solo" style="align-self:center">혼자 연습하기</button>`
